@@ -1,0 +1,262 @@
+void Main()
+{		
+
+getOverallData();
+	//getWeeklyData();
+}
+
+
+public void getWeeklyData()
+{
+		HtmlAgilityPack.HtmlDocument doc = new HtmlDocument();
+		int versionNumber = 1;
+		string docName = MyExtensions.GetIso8601WeekOfYear(DateTime.Now)+ "v" + versionNumber + "GameWeek.html";
+		try
+		{	        
+			doc =	getSavedDoc(docName);
+		}
+		catch (Exception ex)
+		{			
+			throw;
+		}
+		
+		HtmlAgilityPack.HtmlWeb web = new HtmlAgilityPack.HtmlWeb();
+		
+		if(doc == null)
+		{
+		"NO Doc".Dump();
+		doc = web.Load(returnURL());
+		doc.Save(docName);
+		}
+		else
+		{
+			"Doc Found ".Dump();
+		}
+		
+		#region Get Table Data
+		//var tableStandings = doc.DocumentNode.Descendants("table").Where (dn => dn.Attributes.Contains("class") && dn.Attributes["class"].Value.Contains("ismStandingsTable") );
+		var tableSt = doc.DocumentNode.SelectNodes("//table[contains(@class,'ismStandingsTable')]/tr");
+		
+		var ListRecord = tableSt.Select (s => s.Descendants("td").Select (x => new {x.InnerHtml, x.InnerText }) ).ToList();
+		foreach (var element in ListRecord)
+		{
+			//element.Dump();
+			var direction = element.Take(1).Select (e =>e.InnerHtml.Contains("up.png") ? 1 :( e.InnerHtml.Contains("down.png") ? -1 : 0 ) ).SingleOrDefault ();
+			var Postion =  Convert.ToInt32(element.Skip(1).Take(1).Select (e =>e.InnerText).SingleOrDefault ());
+			var PlayerID = Convert.ToInt32(element.Skip(2).Take(1).Select (e =>e.InnerHtml.Split('/')[2]).SingleOrDefault ());
+			var GWID = Convert.ToInt32(element.Skip(2).Take(1).Select (e =>e.InnerHtml.Split('/')[4]).SingleOrDefault ());			
+			var teamName = element.Skip(2).Take(1).Select (e => e.InnerText ).SingleOrDefault ();
+			var PlayerName = element.Skip(3).Take(1).Select (e => e.InnerText ).SingleOrDefault ();
+			var GWPoint = Convert.ToInt32(element.Skip(4).Take(1).Select (e =>e.InnerText).SingleOrDefault ());
+			var GWTotal = Convert.ToInt32(element.Skip(5).Take(1).Select (e =>e.InnerText).SingleOrDefault ());
+			
+				if(PlayerID > 0)
+				{
+				addPlayer(PlayerID, PlayerName, teamName);
+				}
+				
+				if(PlayerID > 0)
+				{
+					bool success = addUpdateGWDetails(GWID, PlayerID, direction, Postion, GWPoint, GWTotal);			
+				}
+				
+				#endregion
+		}	
+}
+
+public void getOverallData()
+{
+	var PLayerID = (from p in PlayerDetails
+	select p.PlayerID).ToList();
+	foreach (var ID in PLayerID)
+	{
+		//returnURL(ID).Dump();
+	
+	HtmlAgilityPack.HtmlDocument docAll = new HtmlDocument();
+	string docName = MyExtensions.GetIso8601WeekOfYear(DateTime.Now)+"CompleteGameWeeks"+ ID + ".html";
+		try
+		{	        
+			docAll =	getSavedDoc(docName);
+		}
+		catch (Exception ex)
+		{
+			
+			throw;
+		}
+		
+		HtmlAgilityPack.HtmlWeb web = new HtmlAgilityPack.HtmlWeb();
+		docAll = null;
+		if(docAll == null)
+		{
+		//"NO Doc".Dump();		
+		docAll = web.Load(returnURL(ID));
+		docAll.Save(docName);
+		}
+		else
+		{
+		//docAll.Dump();
+		//	"Doc Found ".Dump();
+		}
+		
+		var tableSt = docAll.DocumentNode.SelectNodes("//section[contains(@class,'ismPrimaryNarrow')]/section[h1 ='This season']/table//tr");
+		var ListRecord = tableSt.Select (s => s.Descendants("td").Select (x => new {x.InnerHtml, x.InnerText }) ).Skip(1).ToList();
+		foreach (var record in ListRecord)
+		{
+			//record.Dump();
+			var GWID = record.Take(1).Select (r => Convert.ToInt32(r.InnerText.Replace("Gameweek", "" ).Trim())).SingleOrDefault ();
+			var GWPoint = record.Skip(1).Take(1).Select (r => Convert.ToInt32(r.InnerText)).SingleOrDefault ();
+			var GWValue = record.Skip(6).Take(1).Select (r => Convert.ToDecimal(r.InnerText.Replace("£", "").Replace("m", ""))).SingleOrDefault ();
+			var GWTotal = record.Skip(7).Take(1).Select (r => Convert.ToInt32(r.InnerText.Replace(",", ""))).SingleOrDefault ();
+			var GWOverallPostion = record.Skip(8).Take(1).Select (r => Convert.ToInt32(r.InnerText.Replace(",", ""))).SingleOrDefault ();
+		
+			//addUpdateGWDetails(GWID, ID, 0, 0, GWPoint, GWTotal, GWOverallPostion);
+			addUpdateGWDetails(GWID, ID, 0, 0, GWPoint, GWTotal, GWValue, GWOverallPostion);
+		
+		}
+	}
+}
+
+
+public HtmlDocument getSavedDoc(string FileName)
+{
+try
+{	        
+	HtmlAgilityPack.HtmlDocument doc = new HtmlDocument();
+	doc.Load(FileName);
+	return doc	;
+}
+catch (Exception ex)
+{
+	
+	return null;
+}
+	
+	
+	
+}
+
+public void addPlayer(int PlayerID, string PlayerName, string teamName )
+{
+int CYear = getCurrentFPLYear();
+var playerdeets = from p in PlayerDetails
+								where p.PlayerID == PlayerID
+								where p.FPLYear == CYear 
+								select p;
+								
+								if(!playerdeets.Any () && PlayerID > 0)
+								{
+									PlayerDetails deets = new PlayerDetails();
+									deets.PlayerID = PlayerID;
+									deets.Name = PlayerName ?? "";
+									deets.TeamName = teamName ?? "";
+									deets.FPLYear = getCurrentFPLYear();
+									
+									PlayerDetails.InsertOnSubmit(deets);
+									
+									SubmitChanges();
+								}
+}
+
+public bool addUpdateGWDetails(int GWID, int PlayerID, int GWDirection, int Postion, int GWPoint, int GWTotal, int GWOverallPosition = 0 )
+{
+var GameWeekExists = from p in GameWeekHistories
+where p.GWID == GWID
+where p.GWPlayerID == PlayerID
+select p;
+	// Update
+	if(GameWeekExists.Any ())
+	{
+		var singleGW = GameWeekExists.SingleOrDefault ();
+		singleGW.GWDirection = GWDirection;
+		singleGW.GWPosition = Postion;
+		singleGW.GWPoint = GWPoint;
+		singleGW.GWTotal = GWTotal;
+		singleGW.GWOverallPosition = GWOverallPosition;
+		//singleGW.FPLYear = getCurrentFPLYear();
+		
+		SubmitChanges();
+		
+		return true;
+	}
+	// Insert
+	else
+	{
+		GameWeekHistory singleGW = new GameWeekHistory();
+		singleGW.GWID = GWID;
+		singleGW.GWPlayerID = PlayerID;
+		singleGW.GWDirection = GWDirection;
+		singleGW.GWPosition = Postion;
+		singleGW.GWPoint = GWPoint;
+		singleGW.GWTotal = GWTotal;
+		singleGW.GWOverallPosition = GWOverallPosition;
+		singleGW.FPLYear = getCurrentFPLYear();
+		//singleGW.Dump();
+		GameWeekHistories.InsertOnSubmit(singleGW);
+		SubmitChanges();
+		return true;
+	}
+	
+	return false;
+}
+
+public bool addUpdateGWDetails(int GWID, int PlayerID, int GWDirection, int Postion, int GWPoint, int GWTotal, Decimal GWValue, int GWOverallPosition = 0 )
+{
+var GameWeekExists = from p in GameWeekHistories
+where p.GWID == GWID
+where p.GWPlayerID == PlayerID
+select p;
+	// Update
+	if(GameWeekExists.Any ())
+	{
+		var singleGW = GameWeekExists.SingleOrDefault ();
+		singleGW.GWDirection = GWDirection;
+		singleGW.GWPosition = Postion;
+		singleGW.GWPoint = GWPoint;
+		singleGW.GWTotal = GWTotal;
+		singleGW.GWValue = GWValue;
+		singleGW.GWOverallPosition = GWOverallPosition;
+		//singleGW.FPLYear = getCurrentFPLYear();
+		
+		SubmitChanges();
+		
+		return true;
+	}
+	// Insert
+	else
+	{
+		GameWeekHistory singleGW = new GameWeekHistory();
+		singleGW.GWID = GWID;
+		singleGW.GWPlayerID = PlayerID;
+		singleGW.GWDirection = GWDirection;
+		singleGW.GWPosition = Postion;
+		singleGW.GWPoint = GWPoint;
+		singleGW.GWTotal = GWTotal;
+		singleGW.GWValue = GWValue;
+		singleGW.GWOverallPosition = GWOverallPosition;
+		singleGW.FPLYear = getCurrentFPLYear();
+		//singleGW.Dump();
+		GameWeekHistories.InsertOnSubmit(singleGW);
+		SubmitChanges();
+		return true;
+	}
+	
+	return false;
+}
+
+public static string returnURL(int PlayerID = 0)
+	{	if(PlayerID > 0)
+	{
+		return String.Format("http://fantasy.premierleague.com/entry/{0}/history/", PlayerID);
+	}
+	else
+	{
+		return "http://fantasy.premierleague.com/my-leagues/119798/standings/";
+	}
+	
+}
+
+public int  getCurrentFPLYear()
+	{
+	return 2015;
+	}
+// Define other methods and classes here
