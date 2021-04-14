@@ -1,0 +1,89 @@
+List<int> playerID = (from p in PlayerDetails.Where (pd => pd.FPLYear == 2015 )
+where p.Name.Contains("akshey")
+|| p.Name.Contains("robert")
+|| p.Name.Contains("vikram")
+|| p.Name.Contains("karthik")
+|| p.Name.Contains("wangchuk")
+
+
+select p.PlayerID).ToList();
+
+int gwID = 0;
+var categories = (from p in RankedGameweekHistory.Where (rgh => rgh.GWID > gwID  && playerID.Contains(rgh.GWPlayerID ))
+select p.GWID).Distinct().Select (c => "Gameweek " + c );
+
+var playerUGData = (from p in RankedGameweekHistory.Where (rgh => rgh.GWID > gwID  && playerID.Contains(rgh.GWPlayerID ))
+join h in GameweekRunningTotal
+on new { p.GWID, p.GWPlayerID}  equals new { h.GWID, h.GWPlayerID } into joinedPH
+from jH in joinedPH.DefaultIfEmpty()
+join v in PlayerDetails
+on p.GWPlayerID equals v.PlayerID
+
+select new 
+{
+	v.Name,
+	p.GWID,
+	p.GWTotal,
+	p.GWOverallPosition,
+	p.Rank,
+	p.GWValue,
+	jH.PointHit
+	
+});
+
+
+
+var playerData = from o in playerUGData
+group o by o.Name into g
+select new
+{
+	name = g.Key,
+	 type = "area",
+	yAxis = 1,
+	data = g.OrderBy (x => x.GWID ).Select (x => x.GWTotal ).ToArray()
+};
+
+var rankedPlayerData = from o in playerUGData
+group o by o.Name into g
+select new
+{
+	name = g.Key,
+	data = g.OrderBy (x => x.GWID ).Select (x => x.Rank ).ToArray()
+};
+
+var pointHitData = from o in playerUGData
+group o by o.Name into g
+select new
+{
+	name = g.Key,
+	data = g.OrderBy (x => x.GWID ).Select (x => x.PointHit).ToArray()
+};
+
+var TeamValueData = from o in playerUGData
+group o by o.Name into g
+select new
+{
+	name = g.Key,
+	type = "spline",
+	data = g.OrderBy (x => x.GWID ).Select (x => x.GWValue).ToArray()
+};
+
+
+
+//playerData.Dump();
+JavaScriptSerializer jss = new JavaScriptSerializer();  
+var catData = jss.Serialize(categories);  
+var chartData = jss.Serialize(playerData);
+var rankedChartData = jss.Serialize(rankedPlayerData);
+var pointHitchartData = jss.Serialize(pointHitData);
+var TVcahrtData = jss.Serialize(TeamValueData);
+//
+catData.Dump();
+('\n').Dump();
+chartData.Dump();
+('\n').Dump();
+rankedChartData.Dump();
+('\n').Dump();
+pointHitchartData.Dump();
+('\n').Dump();
+TVcahrtData.Dump();
